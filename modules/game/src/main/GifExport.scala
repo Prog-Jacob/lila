@@ -49,7 +49,9 @@ final class GifExport(
       theme: String,
       piece: String,
       analysis: Option[Analysis],
-      options: GifExport.Options
+      options: GifExport.Options,
+      fromPly: Option[Ply] = None,
+      toPly: Option[Ply] = None
   ): Fu[Source[ByteString, ?]] =
     def showPlayer(color: Color) =
       options.players.option:
@@ -67,7 +69,7 @@ final class GifExport(
                 "comment" -> s"${routeUrl(routes.Round.watcher(pov.game.id, pov.color))} rendered with https://github.com/lichess-org/lila-gif",
                 "orientation" -> pov.color.name,
                 "delay" -> targetMedianTime.centis, // default delay for frames
-                "frames" -> frames(pov.game, initialFen, analysis, options),
+                "frames" -> frames(pov.game, initialFen, analysis, options, fromPly, toPly),
                 "theme" -> theme,
                 "piece" -> piece
               )
@@ -154,16 +156,24 @@ final class GifExport(
       game: Game,
       initialFen: Option[Fen.Full],
       analysis: Option[Analysis],
-      options: GifExport.Options
+      options: GifExport.Options,
+      fromPly: Option[Ply],
+      toPly: Option[Ply]
   ): JsArray =
-    val positions = Position(game.variant, initialFen).playPositions(game.sans).getOrElse(List(game.position))
+    val allPositions =
+      Position(game.variant, initialFen).playPositions(game.sans).getOrElse(List(game.position))
+    val allMoveTimes = scaleMoveTimes(~game.moveTimes).map(some).padTo(allPositions.length, None)
+    val from = fromPly.fold(0)(_.value).atLeast(0)
+    val to = toPly.fold(allPositions.length - 1)(_.value).atMost(allPositions.length - 1)
+    val positions = allPositions.slice(from, to + 1)
+    val moveTimes = allMoveTimes.slice(from, to + 1)
     val glyphs = options.glyphs.so(glyphsMap(analysis))
     val clocks = options.clocks.so(game.clockHistory)
     framesRec(
-      positions.zip(scaleMoveTimes(~game.moveTimes).map(some).padTo(positions.length, None)),
+      positions.zip(moveTimes),
       glyphs,
       clocks,
-      Ply.initial,
+      Ply(from),
       Json.arr()
     )
 
